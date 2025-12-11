@@ -7,3 +7,5 @@ Config is $HOME/.config/wloverview/config.json
 
 ## Looks like this:
 ![](screenshot.png)
+
+based on this: https://github.com/alpha6z/wayland-tasklist-overview/
