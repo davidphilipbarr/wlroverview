@@ -1,0 +1,65 @@
+[
+    {
+        "title": "Files",
+        "icon": "org.gnome.Nautilus",
+        "exec": "nautilus --new-window"
+    },
+    {
+        "title": "Console",
+        "icon": "org.gnome.Console",
+        "exec": "kgx"
+    },
+    {
+        "title": "Firefox",
+        "icon": "firefox",
+        "exec": "/home/david/bin/firefox/firefox"
+    },
+    {
+        "title": "Discord",
+        "icon": "discord",
+        "exec": "/usr/share/discord/Discord"
+    },
+    {
+        "title": "Visual Studio Code",
+        "icon": "vscode",
+        "exec": "/usr/share/code/code"
+    },
+    {
+        "title": "Text Editor",
+        "icon": "org.gnome.TextEditor",
+        "exec": "gnome-text-editor"
+    },
+    {
+        "title": "Inkscape",
+        "icon": "org.inkscape.Inkscape",
+        "exec": "inkscape"
+    },
+    {
+        "title": "Amberol",
+        "icon": "io.bassi.Amberol",
+        "exec": "amberol"
+    },
+       {
+        "title": "Plex",
+        "icon": "plex-bin",
+        "exec": "flatpak run tv.plex.PlexDesktop "
+    },
+     {
+        "title": "PlexAmp",
+        "icon": "plexamp",
+        "exec": "pal.sh"
+    },
+    
+    
+    {
+        "title": "gitg",
+        "icon": "org.gnome.gitg",
+        "exec": "gitg"
+    },
+    {
+        "title": "Volume Control",
+        "icon": "multimedia-volume-control",
+        "exec": "pavucontrol"
+    }
+   
+]
