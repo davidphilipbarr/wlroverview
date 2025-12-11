@@ -9,3 +9,4 @@ Config is $HOME/.config/wloverview/config.json
 ![](screenshot.png)
 
 based on this: https://github.com/alpha6z/wayland-tasklist-overview/
+useful: https://github.com/AndreasBackx/waycorner
