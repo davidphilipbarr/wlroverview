@@ -1,89 +1,32 @@
 #!/usr/bin/env python3
-import math
-import subprocess
-import ast
-import gi
+from datetime import datetime
 import json
 import os
-from datetime import datetime
+import math
+import subprocess
+import shlex
+import gi
+import unicodedata
+import re
+from gi.repository import Gtk, Gdk, GLib, Pango
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Gdk, GLib
 
-# ---------- CSS ---------- #
+# ---------------- CSS ---------------- #
 CSS = """
 #fullblur {
-    background-color: rgba(22,22,22,.72);
+    background-color: rgba(22,22,26,.62);
 }
 
-window {
-    background-color: transparent;
-}
+window { background: transparent; }
 
 .tile {
     background-color: #38383b;
     color: white;
     border-radius: 15px;
-    border: none;
     padding: 15px;
-    font-size: 16px;
 }
-
-.round-tile {
-    background-color: #38383b;
-    border-radius: 9999px;
-    padding: 12px;
-}
-
-.round-tile:hover  
-{
-background: #303030;
-}
-.close-overlay {
-    padding: 8px;
-    border-radius: 6px;
-    opacity: 0.0;
-    transition: opacity 150ms ease;
-}
-
-.tile:hover .close-overlay {
-    opacity: 1.0;
-}
-
-.close-overlay:hover {
-    background-color: rgba(0,0,0,0.45);
-    border-radius: 6px;
-}
-
-.close-overlay image {
-    color: rgba(255,255,255,0.95);
-}
-
-.dock-background {
-    padding: 12px 12px;
-    background-color: rgba(45,45,50,0.55);
-    border-radius: 24px;
-    box-shadow: rgba(255, 255, 255, 0.17) 0px 0px 0px 1px inset;
-}
-
-.dock-icon {
-    padding: 5px;
-    border-radius: 15px;
-    margin: 0;
-    transition: transform 120ms ease, background-color 120ms ease;
-}
-
-.dock-icon:hover {
-    background-color: rgba(255,255,255,0.10);
-}
-
-.tile:focus-visible,
-.round-tile:focus-visible {
-    outline: 5px solid rgba(255,255,255,0.9);
-}
-
-.tile:hover
-{
+.tile:hover {
     box-shadow: inset 0 0 0 6px rgba(41,128,185,1);
 }
 
@@ -91,8 +34,42 @@ background: #303030;
     font-size: 15px;
 }
 
+
+.running-dot {
+
+    background-color: white;
+    border-radius: 999px;
+    min-width: 6px;
+    min-height: 6px;
+    opacity: 0.9;
+}
+
+
+/* ---- Close button (hover only) ---- */
+.tile-close {
+    margin: 6px;
+    padding: 2px;
+    border-radius: 9999px;
+    background: rgba(0,0,0,0.6);
+    opacity: 0;
+    transition: opacity 120ms ease-out, background 120ms ease-out;
+}
+.tile:hover .tile-close {
+    opacity: 1;
+}
+.tile-close:hover {
+    background: rgba(200,60,60,0.9);
+}
+
+.round-tile {
+    background-color: #38383b;
+    border-radius: 9999px;
+    padding: 10px;
+}
+.round-tile:hover { background: #303030; }
+
 .round-tile image {
-    color:white;
+    color: white;
 }
 
 .clock-label {
@@ -100,59 +77,108 @@ background: #303030;
     font-size: 13px;
     font-weight: 600;
 }
+
+/* Dock */
+.dock-background {
+    padding: 12px;
+    background-color: rgba(45,45,50,0.75);
+    box-shadow: rgba(255,255,255,0.17) 0 0 0 1px inset;
+    border-radius: 28px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 140ms ease-out, transform 140ms ease-out;
+}
+.dock-background.dock-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+.dock-icon {
+    padding: 5px;
+    border-radius: 15px;
+    background:transparent
+}
+.dock-icon:hover {
+    background-color: rgba(255,255,255,0.10);
+}
+
+
 """
 
+# ---------------- TITLE NORMALIZATION ---------------- #
+_DASH_TRANSLATION = str.maketrans({
+    "\u2010": "-",  # hyphen
+    "\u2011": "-",  # non-breaking hyphen
+    "\u2012": "-",  # figure dash
+    "\u2013": "-",  # en dash
+    "\u2014": "-",  # em dash
+    "\u2212": "-",  # minus sign
+    "\u2043": "-",  # hyphen bullet
+})
 
-# ---------- WINDOW LIST ---------- #
+_ZERO_WIDTH_RE = re.compile(r"[\u200B-\u200D\uFEFF]")
+
+def normalize_title(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKC", s)
+    s = _ZERO_WIDTH_RE.sub("", s)
+    s = s.translate(_DASH_TRANSLATION)
+    return " ".join(s.split())
+
+
+# ---------------- HELPERS ---------------- #
+
+
+
 def get_windows():
     try:
-        raw = subprocess.check_output(
-            ["wlrctl", "toplevel", "list"], text=True
-        )
+        raw = subprocess.check_output(["wlrctl", "toplevel", "list"], text=True)
     except Exception:
         return []
-    windows = []
+
+    out = []
     for line in raw.splitlines():
         if ":" not in line:
             continue
+
         appid, title = line.split(":", 1)
-        windows.append((appid.strip(), title.strip()))
-    return windows
+        appid = appid.strip()
+        title = title.strip()
+
+        if appid == "org.broomlabs.wloverview" or title.lower() == "wloverview":
+            continue
+
+        out.append((appid, title, normalize_title(title)))
+
+    return out
 
 
-# ---------- LOAD DOCK CONFIG JSON ---------- #
 def load_dock_config():
     path = os.path.expanduser("~/.config/wloverview/config.json")
     if not os.path.exists(path):
         return []
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             return json.load(f)
     except Exception:
         return []
 
+def get_running_app_ids():
+    wins = get_windows()
+    return {appid for appid, *_ in wins}
 
-# ---------- MAIN WINDOW ---------- #
+def expand_tokens(argv):
+    return [os.path.expanduser(os.path.expandvars(t)) for t in argv]
+
+
+# ---------------- MAIN WINDOW ---------------- #
 class MainWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(title="Task Switcher")
-
+        super().__init__()
+        self.set_title("wloverview")
         self.set_decorated(False)
         self.fullscreen()
-        self.buttons = []
-        self.columns = 1
 
-        # Keyboard controller
-        key = Gtk.EventControllerKey()
-        key.connect("key-pressed", self.on_key)
-        self.add_controller(key)
-
-        # Click background to close switcher
-        click = Gtk.GestureClick()
-        click.connect("pressed", self.on_background_click)
-        self.add_controller(click)
-
-        # Apply CSS
         provider = Gtk.CssProvider()
         provider.load_from_string(CSS)
         Gtk.StyleContext.add_provider_for_display(
@@ -161,316 +187,355 @@ class MainWindow(Gtk.Window):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
 
-        # Monitor geometry
-        display = Gdk.Display.get_default()
-        monitor = display.get_monitors().get_item(0)
-        geo = monitor.get_geometry()
-        screen_w, screen_h = geo.width, geo.height
-
-        winlist = get_windows()
-        count = len(winlist)
-        est_cols = max(1, min(5, int(math.sqrt(count)) if count else 1))
-        rows = math.ceil(count / est_cols)
-        height_factor = {1: 0.30, 2: 0.40, 3: 0.50, 4: 0.60}.get(rows, 0.70)
-
-        self.container_w = int(screen_w * 0.75)
-        self.container_h = int(screen_h * height_factor)
-
-        # Overlay root
         overlay = Gtk.Overlay()
         self.set_child(overlay)
 
-        # Blur background
-        blur_box = Gtk.Box(name="fullblur")
-        blur_box.set_hexpand(True)
-        blur_box.set_vexpand(True)
-        overlay.set_child(blur_box)
+        # -------- Background --------
+        blur = Gtk.Box(name="fullblur")
+        blur.set_hexpand(True)
+        blur.set_vexpand(True)
+        overlay.set_child(blur)
 
-        # ---------- TOP-CENTER CLOCK ---------- #
-        self.clock_label = Gtk.Label()
-        self.clock_label.add_css_class("clock-label")
-        self.clock_label.set_halign(Gtk.Align.CENTER)
-        self.clock_label.set_valign(Gtk.Align.START)
-        self.clock_label.set_margin_top(16)
-        overlay.add_overlay(self.clock_label)
-
-        # Initial clock update + refresh every 60s
+        # -------- Clock --------
+        self.clock = Gtk.Label()
+        self.clock.add_css_class("clock-label")
+        self.clock.set_halign(Gtk.Align.CENTER)
+        self.clock.set_valign(Gtk.Align.START)
+        self.clock.set_margin_top(8)
+        overlay.add_overlay(self.clock)
         self.update_clock()
         GLib.timeout_add_seconds(60, self.update_clock)
 
-        # Center content
-        centerbox = Gtk.CenterBox()
-        centerbox.set_valign(Gtk.Align.CENTER)
-        centerbox.set_size_request(self.container_w, self.container_h)
-        overlay.add_overlay(centerbox)
+        # -------- Top-right buttons --------
+        sys_buttons = Gtk.Box(spacing=10)
+        sys_buttons.set_halign(Gtk.Align.END)
+        sys_buttons.set_valign(Gtk.Align.START)
+        sys_buttons.set_margin_top(12)
+        sys_buttons.set_margin_end(12)
+        overlay.add_overlay(sys_buttons)
 
-        # Grid container
-        self.grid = Gtk.Grid(
-            column_spacing=22,
-            row_spacing=16,
-            column_homogeneous=True
-        )
-        self.grid.set_valign(Gtk.Align.CENTER)
+        # Volume
+        self.vol_icon = Gtk.Image.new_from_icon_name("audio-volume-high-symbolic")
+        self.vol_icon.set_pixel_size(18)
+        vol_btn = Gtk.Button(child=self.vol_icon)
+        vol_btn.add_css_class("round-tile")
+        vol_btn.set_focusable(False)
+        vol_btn.connect("clicked", lambda *_: subprocess.Popen(["pavucontrol"]))
+        sys_buttons.append(vol_btn)
+        GLib.timeout_add(400, self.update_volume_icon)
+        self.update_volume_icon()
 
-        self.grid_wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.grid_wrapper.set_halign(Gtk.Align.CENTER)
-        self.grid_wrapper.set_valign(Gtk.Align.CENTER)
-        self.grid_wrapper.set_hexpand(True)
-        self.grid_wrapper.set_vexpand(True)
-
-        # ---------- ROUND WORKSPACE NAV BUTTONS (RESTORED) ---------- #
-        nav_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=35)
-        nav_row.set_halign(Gtk.Align.CENTER)
-        nav_row.set_margin_bottom(35)
-
-        prev_icon = Gtk.Image.new_from_icon_name("go-previous-symbolic")
-        btn_prev = Gtk.Button()
-        btn_prev.add_css_class("round-tile")
-        btn_prev.set_child(prev_icon)
-        btn_prev.set_size_request(48, 48)
-        btn_prev.connect(
-            "clicked",
-            lambda *_: subprocess.call(["ydotool", "key", "56:1", "105:1", "105:0", "56:0"])
+        # Bluetooth
+        self.add_sys_button(
+            sys_buttons,
+            "bluetooth-active-symbolic",
+            lambda *_: (subprocess.Popen(["blueman-manager"]), self.close())
         )
 
-        next_icon = Gtk.Image.new_from_icon_name("go-next-symbolic")
-        btn_next = Gtk.Button()
-        btn_next.add_css_class("round-tile")
-        btn_next.set_child(next_icon)
-        btn_next.set_size_request(48, 48)
-        btn_next.connect(
-            "clicked",
-            lambda *_: subprocess.call(["ydotool", "key", "56:1", "106:1", "106:0", "56:0"])
+        # Labwc tweaks
+        self.add_sys_button(
+            sys_buttons,
+            "applications-system-symbolic",
+            lambda *_: (subprocess.Popen(["labwc-tweaks-gtk"]), self.close())
         )
 
-        nav_row.append(btn_prev)
-        nav_row.append(btn_next)
+        # Lock
+        self.add_sys_button(
+            sys_buttons,
+            "system-lock-screen-symbolic",
+            lambda *_: (subprocess.Popen(["swaylock", "-f", "-c", "000000"]), self.close())
+        )
 
-        centerbox.set_center_widget(self.grid_wrapper)
+        # -------- Center --------
+        center = Gtk.CenterBox()
+        center.set_halign(Gtk.Align.CENTER)
+        center.set_valign(Gtk.Align.CENTER)
+        overlay.add_overlay(center)
 
-        # Add nav row above grid
-        self.grid_wrapper.append(nav_row)
-        self.grid_wrapper.append(self.grid)
+        self.center_overlay = Gtk.Overlay()
+        wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        wrapper.set_halign(Gtk.Align.CENTER)
+        wrapper.set_valign(Gtk.Align.CENTER)
 
-        # Populate tiles
-        self.populate()
+        self.grid = Gtk.Grid(column_spacing=22, row_spacing=16)
+        wrapper.append(self.grid)
 
-        # Build JSON-driven dock
+        self.center_overlay.set_child(wrapper)
+        center.set_center_widget(self.center_overlay)
+
+        GLib.idle_add(self._update_center_size)
+        GLib.idle_add(self.populate)
         self.build_dock(overlay)
 
-    # ---------- CLOCK UPDATE ---------- #
-    def update_clock(self):
-        now = datetime.now()
-        # Build GNOME-style text: Tue Feb 11 · 14:33
-        # Use the actual numeric day to avoid %-d portability issues
-        day = now.day
-        time_str = now.strftime("%a %b {day} · %H:%M").format(day=day)
-        self.clock_label.set_text(time_str)
-        return True  # keep GLib.timeout_add_seconds repeating
+        # -------- Background click-to-close --------
+        bg_click = Gtk.GestureClick()
+        bg_click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
 
-    # ---------- JSON DOCK BUILDER ---------- #
-    def build_dock(self, overlay):
-        config = load_dock_config()
-        if not config:
+        def on_bg_click(_g, _n, x, y):
+            picked = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+            w = picked
+            while w:
+                if isinstance(w, Gtk.Button):
+                    return
+                w = w.get_parent()
+            self.close()
+
+        bg_click.connect("pressed", on_bg_click)
+        self.add_controller(bg_click)
+
+    # ---------------- Layout ---------------- #
+    def _update_center_size(self):
+        w = self.get_allocated_width()
+        h = self.get_allocated_height()
+        if w < 200 or h < 200:
+            return True
+        self.center_overlay.set_size_request(int(w * 0.75), int(h * 0.6))
+        return False
+
+    # ---------------- Helpers ---------------- #
+    def add_sys_button(self, parent, icon_name, callback):
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        icon.set_pixel_size(18)
+        btn = Gtk.Button(child=icon)
+        btn.add_css_class("round-tile")
+        btn.set_focusable(False)
+        btn.connect("clicked", callback)
+        parent.append(btn)
+
+    def get_volume_icon(self):
+        try:
+            out = subprocess.check_output(
+                ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+                text=True
+            ).strip()
+        except Exception:
+            return "audio-volume-muted-symbolic"
+
+        if "MUTED" in out:
+            return "audio-volume-muted-symbolic"
+
+        try:
+            vol = float(out.split()[-1])
+        except Exception:
+            return "audio-volume-muted-symbolic"
+
+        if vol == 0:
+            return "audio-volume-muted-symbolic"
+        elif vol < 0.33:
+            return "audio-volume-low-symbolic"
+        elif vol < 0.66:
+            return "audio-volume-medium-symbolic"
+        else:
+            return "audio-volume-high-symbolic"
+
+    def update_volume_icon(self):
+        self.vol_icon.set_from_icon_name(self.get_volume_icon())
+        return True
+
+    def focus_window(self, appid, title_raw, title_norm):
+        tries = [
+            ["wlrctl", "toplevel", "focus", f"app_id:{appid}", f"title:{title_raw}"],
+            ["wlrctl", "toplevel", "focus", f"app_id:{appid}", f"title:{title_norm}"],
+            ["wlrctl", "toplevel", "focus", f"title:{title_raw}"],
+            ["wlrctl", "toplevel", "focus", f"title:{title_norm}"],
+            ["wlrctl", "toplevel", "focus", f"app_id:{appid}"],
+        ]
+        for cmd in tries:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return
 
-        dock = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+    def update_clock(self):
+        self.clock.set_text(datetime.now().strftime("%a %b %-d · %H:%M"))
+        return True
+
+    # ---------------- UI ---------------- #
+    def populate(self):
+        child = self.grid.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.grid.remove(child)
+            child = nxt
+
+        wins = get_windows()
+        if not wins:
+            return True
+
+        w = self.get_allocated_width()
+        h = self.get_allocated_height()
+        if w < 200 or h < 200:
+            return True
+
+        icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+
+        count = len(wins)
+        spacing = 22
+        best_cols, best_w = 1, 0
+
+        for cols in range(1, count + 1):
+            rows = math.ceil(count / cols)
+            max_w = (w * 0.85 - (cols - 1) * spacing) / cols
+            max_h = (h * 0.6 - (rows - 1) * spacing) / rows
+            tw = min(max_w, max_h * (4 / 3))
+            if tw > best_w:
+                best_w, best_cols = tw, cols
+
+        rows = math.ceil(count / best_cols)
+        tile_w = int(best_w)
+        tile_h = int(tile_w * 0.75)
+
+        i = 0
+        for r in range(rows):
+            for c in range(best_cols):
+                if i >= count:
+                    break
+
+                appid, title_raw, title_norm = wins[i]
+
+                content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+                content.set_halign(Gtk.Align.CENTER)
+                content.set_valign(Gtk.Align.CENTER)
+
+                icon_name = appid if icon_theme.has_icon(appid) else "applications-system"
+                icon = Gtk.Image.new_from_icon_name(icon_name)
+                icon.set_pixel_size(96)
+
+                label = Gtk.Label(label=title_raw)
+                label.set_xalign(0.5)
+                label.set_ellipsize(Pango.EllipsizeMode.END)
+                label.set_max_width_chars(18)
+                label.set_single_line_mode(True)
+
+                content.append(icon)
+                content.append(label)
+
+                tile_overlay = Gtk.Overlay()
+                tile_overlay.set_child(content)
+
+                close_icon = Gtk.Image.new_from_icon_name("window-close-symbolic")
+                close_icon.set_pixel_size(16)
+                close_btn = Gtk.Button(child=close_icon)
+                close_btn.add_css_class("tile-close")
+                close_btn.set_focusable(False)
+                close_btn.set_halign(Gtk.Align.END)
+                close_btn.set_valign(Gtk.Align.START)
+
+                gesture = Gtk.GestureClick()
+                gesture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+                def on_close(_g, _n, _x, _y, appid=appid, title=title_norm):
+                    subprocess.Popen(
+                        ["wlrctl", "toplevel", "close",
+                         f"app_id:{appid}", f"title:{title}"]
+                    )
+                    _g.set_state(Gtk.EventSequenceState.CLAIMED)
+
+                gesture.connect("pressed", on_close)
+                close_btn.add_controller(gesture)
+                tile_overlay.add_overlay(close_btn)
+
+                btn = Gtk.Button()
+                btn.add_css_class("tile")
+                btn.set_child(tile_overlay)
+                btn.set_size_request(tile_w, tile_h)
+                btn.connect(
+                    "clicked",
+                    lambda _btn, a=appid, tr=title_raw, tn=title_norm:
+                        (self.focus_window(a, tr, tn), self.close())
+                )
+
+                self.grid.attach(btn, c, r, 1, 1)
+                i += 1
+
+        return False
+
+    def build_dock(self, overlay):
+        cfg = load_dock_config()
+        if not cfg:
+            return
+
+    # Which apps are currently running
+        running_apps = {appid for appid, *_ in get_windows()}
+
+        dock = Gtk.Box(spacing=4)
         dock.add_css_class("dock-background")
         dock.set_halign(Gtk.Align.CENTER)
         dock.set_valign(Gtk.Align.END)
         dock.set_margin_bottom(8)
 
-        for entry in config:
-            title = entry.get("title", "App")
-            icon_name = entry.get("icon", "application-x-executable")
-            exec_cmd = entry.get("exec")
+        for e in cfg:
+            icon = Gtk.Image.new_from_icon_name(e.get("icon"))
+            icon.set_pixel_size(64)
 
-            icon = Gtk.Image.new_from_icon_name(icon_name)
-            icon.set_pixel_size(72)
+            btn = Gtk.Button(child=icon)
+            btn.add_css_class("dock-icon")
+            btn.set_focusable(False)
+            btn.set_size_request(74, 74)
 
-            icon_box = Gtk.Box()
-            icon_box.add_css_class("dock-icon")
-            icon_box.append(icon)
-            icon_box.set_tooltip_text(title)
+            overlay_btn = Gtk.Overlay()
+            overlay_btn.set_child(btn)
 
+            app_id = e.get("app_id") or e.get("icon")
+            cmd = e.get("exec")
+            is_running = app_id in running_apps
+
+        # ---- Running indicator ----
+            if is_running:
+                dot = Gtk.Box()
+                dot.add_css_class("running-dot")
+                dot.set_halign(Gtk.Align.CENTER)
+                dot.set_valign(Gtk.Align.START)
+                dot.set_margin_top(70)
+                overlay_btn.add_overlay(dot)
+
+        # ---- Click handling ----
             gesture = Gtk.GestureClick()
-            gesture.connect("pressed", self.launch_exec, exec_cmd)
-            icon_box.add_controller(gesture)
+            gesture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
 
-            dock.append(icon_box)
+            def on_click(gesture, n_press, x, y,
+                        app_id=app_id,
+                        cmd=cmd,
+                        is_running=is_running):
+                button = gesture.get_current_button()
+
+            # Middle click → always launch new instance
+                if button == 2:
+                    self.launch(cmd)
+
+            # Left click
+                elif button == 1:
+                    if is_running:
+                        subprocess.run(
+                            ["wlrctl", "toplevel", "focus", f"app_id:{app_id}"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
+                        self.close()
+                    else:
+                        self.launch(cmd)
+
+                gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+
+            gesture.connect("pressed", on_click)
+            btn.add_controller(gesture)
+
+            dock.append(overlay_btn)
 
         overlay.add_overlay(dock)
+        GLib.idle_add(dock.add_css_class, "dock-visible")
 
-    # ---------- Run Exec Command ---------- #
-    def launch_exec(self, gesture, n_press, x, y, exec_cmd):
-        if not exec_cmd:
-            return
-        try:
-            subprocess.Popen(exec_cmd.split(" "))
-        except Exception:
-            pass
 
-    # ---------- WINDOW GRID ---------- #
-    def populate(self):
-        windows = get_windows()
-        if not windows:
-            return
-
-        icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-
-        count = len(windows)
-        spacing = 22
-        MIN_TILE_W = 200
-        max_tile_percent = max(0.16, min(0.40, 0.55 / math.sqrt(count)))
-        adaptive_max_w = self.container_w * max_tile_percent
-
-        best_cols = 1
-        best_tile_w = 0
-
-        for cols in range(1, count + 1):
-            rows = math.ceil(count / cols)
-            max_w = (self.container_w - (cols - 1) * spacing) / cols
-            max_h = (self.container_h - (rows - 1) * spacing) / rows
-            tile_w = min(max_w, max_h * (4 / 3), adaptive_max_w)
-            tile_w = max(tile_w, MIN_TILE_W)
-            if tile_w > best_tile_w:
-                best_tile_w = tile_w
-                best_cols = cols
-
-        self.columns = best_cols
-        rows = math.ceil(count / self.columns)
-        tile_w = int(best_tile_w)
-        tile_h = int(tile_w * 0.75)
-
-        idx = 0
-        for r in range(rows):
-            for c in range(self.columns):
-                if idx >= count:
-                    break
-
-                appid, title = windows[idx]
-
-                vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-                vbox.set_valign(Gtk.Align.CENTER)
-
-                icon = Gtk.Image.new_from_icon_name(
-                    appid if icon_theme.has_icon(appid) else "applications-system"
-                )
-                icon.set_pixel_size(96)
-
-                label = Gtk.Label(label=title)
-                label.set_wrap(True)
-                label.set_max_width_chars(40)
-                label.set_xalign(0.5)
-                label.set_justify(Gtk.Justification.CENTER)
-
-                vbox.append(icon)
-                vbox.append(label)
-
-                overlay = Gtk.Overlay()
-                overlay.set_child(vbox)
-
-                close_icon = Gtk.Image.new_from_icon_name("window-close-symbolic")
-                close_box = Gtk.Box()
-                close_box.add_css_class("close-overlay")
-                close_box.set_halign(Gtk.Align.END)
-                close_box.set_valign(Gtk.Align.START)
-                close_box.set_margin_top(6)
-                close_box.set_margin_end(6)
-                close_box.append(close_icon)
-
-                gesture = Gtk.GestureClick()
-                gesture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-                gesture.connect(
-                    "pressed",
-                    self.close_window_gesture,
-                    appid,
-                    title
-                )
-                close_box.add_controller(gesture)
-
-                overlay.add_overlay(close_box)
-
-                tile_btn = Gtk.Button()
-                tile_btn.add_css_class("tile")
-                tile_btn.set_child(overlay)
-                tile_btn.set_size_request(tile_w, tile_h)
-                tile_btn.connect("clicked", self.activate, appid, title)
-
-                self.grid.attach(tile_btn, c, r, 1, 1)
-                self.buttons.append(tile_btn)
-                idx += 1
-
-        if self.buttons:
-            self.buttons[0].grab_focus()
-
-    # ---------- ACTIVATE WINDOW ---------- #
-    def activate(self, button, appid, title):
-        subprocess.call(["wlrctl", "toplevel", "focus", appid, title])
-        self.close()
-
-    # ---------- CLOSE WINDOW ---------- #
-    def close_window_gesture(self, gesture, n_press, x, y, appid, title):
-        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        subprocess.call(["wlrctl", "toplevel", "close", appid, title])
-        return True
-
-    # ---------- KEY NAVIGATION ---------- #
-    def on_key(self, controller, keyval, keycode, state):
-        from gi.repository import Gdk
-
-        if keyval == Gdk.KEY_Escape:
+    def launch(self, cmd):
+        if not cmd:
             self.close()
-            return True
-
-        if not self.buttons:
-            return False
-
-        focused = Gtk.Window.get_focus(self)
-        if focused not in self.buttons:
-            self.buttons[0].grab_focus()
-            return True
-
-        idx = self.buttons.index(focused)
-
-        if keyval == Gdk.KEY_Right:
-            idx = (idx + 1) % len(self.buttons)
-        elif keyval == Gdk.KEY_Left:
-            idx = (idx - 1) % len(self.buttons)
-        elif keyval == Gdk.KEY_Down:
-            idx = min(idx + self.columns, len(self.buttons) - 1)
-        elif keyval == Gdk.KEY_Up:
-            idx = max(idx - self.columns, 0)
-        elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
-            focused.clicked()
-            return True
-        else:
-            return False
-
-        self.buttons[idx].grab_focus()
-        return True
-
-    # ---------- CLICK-BACKGROUND CLOSE ---------- #
-    def on_background_click(self, gesture, n_press, x, y):
-        widget = self.pick(x, y, Gtk.PickFlags.DEFAULT)
-        while widget:
-            if isinstance(widget, Gtk.Button):
-                return
-            widget = widget.get_parent()
+            return
+        argv = expand_tokens(shlex.split(cmd))
+        subprocess.Popen(argv)
         self.close()
 
 
-# ---------- MAIN ---------- #
 def main():
-    app = Gtk.Application()
-    app.connect(
-        "activate",
-        lambda app: (
-            w := MainWindow(),
-            app.add_window(w),
-            w.present()
-        )
-    )
+    app = Gtk.Application(application_id="org.broomlabs.wloverview")
+    app.connect("activate", lambda app: (w := MainWindow(), app.add_window(w), w.present()))
     app.run(None)
 
 
