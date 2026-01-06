@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Wloverview
+GenericName=Wloverview
+Categories=Utilities;
+Icon=org.broom.wloverview
+Exec=wloverview
+Terminal=false
+Type=Application
+StartupNotify=false
+StartupWMClass=org.broom.wloverview
+
