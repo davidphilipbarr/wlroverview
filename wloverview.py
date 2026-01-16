@@ -12,7 +12,47 @@ import unicodedata
 import re
 from gi.repository import Gtk, Gdk, GLib, Pango, Gio
 
+# ---------------- KEYBINDINGS / ACTIONS ---------------- #
 
+ACTIONS = {
+    "workspace_prev": {
+        "type": "ydotool",
+        "command": "key 56:1 105:1 105:0 56:0",  # Alt+Left
+    },
+    "workspace_next": {
+        "type": "ydotool",
+        "command": "key 56:1 106:1 106:0 56:0",  # Alt+Right
+    },
+    "lock_screen": {
+        "type": "exec",
+        "command": "swaylock -f -c 000000",
+    },
+    "conf": {
+        "type": "exec",
+        "command": "labwc-tweaks-gtk",
+    },
+    "bluetooth": {
+        "type": "exec",
+        "command": "blueman-manager",
+    },
+}
+
+
+def run_action(name):
+        action = ACTIONS.get(name)
+        if not action:
+            print(f"[wloverview] Unknown action: {name}")
+            return
+
+        atype = action.get("type")
+        cmd = action.get("command")
+        if not cmd:
+            return
+
+        if atype == "ydotool":
+            subprocess.Popen(["ydotool"] + shlex.split(cmd))
+        elif atype == "exec":
+            subprocess.Popen(shlex.split(cmd))
 
 # ---------------- CSS ---------------- #
 CSS = """
@@ -143,6 +183,8 @@ def load_user_css():
 
 load_user_css()
 
+
+
 def expand_tilde_variants(title: str):
     if "~" not in title:
         return [title]
@@ -219,7 +261,11 @@ class MainWindow(Gtk.Window):
         self.set_decorated(False)
         self.fullscreen()
 
-
+# Load config + actions EARLY
+# deal with this later
+   #     self.config = load_config()
+     #   self.actions = self.config.get("actions", {})
+        
         provider = Gtk.CssProvider()
         provider.load_from_string(CSS)
         Gtk.StyleContext.add_provider_for_display(
@@ -247,6 +293,9 @@ class MainWindow(Gtk.Window):
         self.update_clock()
         GLib.timeout_add_seconds(60, self.update_clock)
 
+
+      
+
         # Cache windows once
         self.windows = get_windows()
 
@@ -267,10 +316,7 @@ class MainWindow(Gtk.Window):
         prev_btn.connect(
             "clicked",
             lambda *_: (
-                subprocess.Popen(
-                    ["ydotool", "key",
-                    "56:1", "105:1", "105:0", "56:0"]  # Alt + Left
-                ),
+                run_action("workspace_prev"),
                 self.close()
             )
         )
@@ -285,10 +331,7 @@ class MainWindow(Gtk.Window):
         next_btn.connect(
             "clicked",
             lambda *_: (
-                subprocess.Popen(
-                    ["ydotool", "key",
-                    "56:1", "106:1", "106:0", "56:0"]  # Alt + Right
-                ),
+                run_action("workspace_next"),
                 self.close()
             )
         )
@@ -334,21 +377,21 @@ class MainWindow(Gtk.Window):
         self.add_sys_button(
             sys_buttons,
             "bluetooth-active-symbolic",
-            lambda *_: (subprocess.Popen(["blueman-manager"]), self.close())
+            lambda *_: (run_action("bluetooth"), self.close())
         )
 
         # Labwc tweaks
         self.add_sys_button(
             sys_buttons,
             "applications-system-symbolic",
-            lambda *_: (subprocess.Popen(["labwc-tweaks-gtk"]), self.close())
+            lambda *_: (run_action("conf"), self.close())
         )
 
         # Lock
         self.add_sys_button(
             sys_buttons,
             "system-lock-screen-symbolic",
-            lambda *_: (subprocess.Popen(["swaylock", "-f", "-c", "000000"]), self.close())
+            lambda *_: (run_action("lock_screen"), self.close())
         )
 
         # -------- Center --------
@@ -405,6 +448,12 @@ class MainWindow(Gtk.Window):
         return False
 
     # ---------------- Helpers ---------------- #
+    
+    
+    
+    
+    
+    
     def add_sys_button(self, parent, icon_name, callback):
         icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(18)
@@ -517,7 +566,10 @@ class MainWindow(Gtk.Window):
 
         for cmd in tries:
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
+            # If this attempt used a title, stop here to avoid stealing focus
+            if "title:" in " ".join(cmd):
+                return
+                
     def focus_window(self, appid, title_raw, title_norm):
         # Prefer exact appid+title (raw), then appid+title (normalized), then title-only, then appid-only.
         self._wlrctl_focus_try(appid, title_raw)
@@ -707,12 +759,29 @@ class MainWindow(Gtk.Window):
 
 
             gesture = Gtk.GestureClick()
+            gesture.set_button(0)  # ← CRITICAL: allow left + middle + right
             gesture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
 
-            def on_click(g, n_press, x, y, cmd=cmd):
+      #      def on_click(g, n_press, x, y, cmd=cmd):
+       #         g.set_state(Gtk.EventSequenceState.CLAIMED)
+        #        self.launch(cmd)
+            def on_click(g, n_press, x, y, cmd=cmd, app_id=app_id, is_running=is_running):
+                button = g.get_current_button()
                 g.set_state(Gtk.EventSequenceState.CLAIMED)
-                self.launch(cmd)
 
+    # Middle click: always launch a new instance
+                if button == 2:
+                    self.launch(cmd)
+                    return
+
+    # Left click
+                if button == 1:
+                    if is_running:
+                        self.focus_appid_best(app_id)
+                        self.close()
+                    else:
+                        self.launch(cmd)
+            
             gesture.connect("pressed", on_click)
             btn.add_controller(gesture)
 
