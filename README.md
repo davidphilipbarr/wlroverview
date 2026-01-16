@@ -1,6 +1,8 @@
 # wloverview
 Python gtk4 Dash type thing for Labwc or probably all wlroots compositors. 
 
+The 'philosopy' behind it is that nothing runs in the background, every instance is a snapshot of the current state, and realisitacally each instance will close with a single click action. It's like a super simple gnome-shell overview or xfdashboard.
+
 ## Needs
 
 Needs wlrctrl and ydotool
