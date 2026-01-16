@@ -3,6 +3,8 @@ Python gtk4 Dash type thing for Labwc or probably all wlroots compositors.
 
 The 'philosopy' behind it is that nothing runs in the background, every instance is a snapshot of the current state, and realisitacally each instance will close with a single click action. It's like a super simple gnome-shell overview or xfdashboard.
 
+It's created for Labwc but it should be (more or less) wlroots agnostic and relies only on wlroots and wayland protocols rather than any custon IPC. 
+
 ## Needs
 
 Needs wlrctrl and ydotool
