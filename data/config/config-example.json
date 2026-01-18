@@ -1,0 +1,91 @@
+[
+    {
+        "title": "Files",
+        "exec": "nautilus --new-window",
+        "icon": "org.gnome.Nautilus"
+    },
+    {
+        "title": "Console",
+        "exec": "kgx",
+        "icon": "org.gnome.Console"
+    },
+    {
+        "title": "Firefox",
+        "exec": "runraise-ff.sh",
+        "icon": "firefox",
+        "app_id": "firefox"
+    },
+    {
+        "title": "Discord",
+        "exec": "/usr/share/discord/Discord",
+        "icon": "discord"
+    },
+    {
+        "title": "Visual Studio Code",
+        "exec": "/usr/share/code/code",
+        "icon": "vscode",
+        "app_id": "code"
+    },
+    {
+        "title": "Text Editor",
+        "exec": "gnome-text-editor",
+        "icon": "org.gnome.TextEditor"
+    },
+    {
+        "title": "Inkscape",
+        "exec": "inkscape",
+        "icon": "org.inkscape.Inkscape"
+    },
+    {
+        "title": "The GIMP",
+        "exec": "flatpak run org.gimp.GIMP ",
+        "icon": "org.gimp.GIMP"
+    },
+    {
+        "title": "Eyedropper",
+        "exec": "eyedropper",
+        "icon": "com.github.finefindus.eyedropper"
+    },
+    {
+        "title": "Amberol",
+        "exec": "amberol",
+        "icon": "io.bassi.Amberol"
+    },
+    {
+        "title": "Plex",
+        "exec": "flatpak run tv.plex.PlexDesktop",
+        "icon": "plex-bin"
+    },
+    {
+        "title": "PlexAmp",
+        "exec": "flatpak run com.plexamp.Plexamp",
+        "icon": "plexamp"
+    },
+    {
+        "title": "KiCad",
+        "exec": "flatpak run org.kicad.KiCad",
+        "icon": "kicad"
+    },
+    {
+        "title": "Tangram",
+        "exec": "flatpak run re.sonny.Tangram",
+        "icon": "re.sonny.Tangram"
+    },
+    {
+        "title": "gitg",
+        "exec": "gitg",
+        "icon": "org.gnome.gitg"
+    },
+    {
+        "title": "Volume Control",
+        "exec": "pavucontrol",
+        "icon": "multimedia-volume-control",
+        "app_id": "org.pulseaudio.pavucontrol"
+    },
+    {
+        "title": "Launcher",
+        "exec": "ulauncher",
+        "icon": "view-app-grid-symbolic",
+        "app_id": "org.broomlabs.launcher"
+    }
+]

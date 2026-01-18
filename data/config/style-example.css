@@ -1,0 +1,84 @@
+#fullblur {
+    background-color: rgba(22,22,26,.62);
+}
+
+window { background: transparent; }
+
+.tile {
+    background-color: #38383b;
+    color: white;
+    border-radius: 15px;
+    padding: 15px;
+}
+.tile:hover {
+    box-shadow: inset 0 0 0 6px rgba(41,128,185,1);
+}
+
+.tile label {
+    font-size: 15px;
+}
+
+.running-dot {
+    background-color: white;
+    border-radius: 999px;
+    min-width: 6px;
+    min-height: 6px;
+    opacity: 0.9;
+}
+
+/* ---- Close button (hover only) ---- */
+.tile-close {
+    margin: 6px;
+    padding: 2px;
+    border-radius: 9999px;
+    background: rgba(0,0,0,0.6);
+    opacity: 0;
+    transition: opacity 120ms ease-out, background 120ms ease-out;
+}
+.tile:hover .tile-close {
+    opacity: 1;
+}
+.tile-close:hover {
+    background: rgba(200,60,60,0.9);
+}
+
+.round-tile {
+    background-color: #38383b;
+    border-radius: 9999px;
+    padding: 10px;
+}
+.round-tile:hover { background: #303030; }
+
+.round-tile image {
+    color: white;
+}
+
+.clock-label {
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* Dock */
+.dock-background {
+    padding: 12px;
+    background-color: rgba(45,45,50,0.75);
+    box-shadow: rgba(255,255,255,0.17) 0 0 0 1px inset;
+    border-radius: 28px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 140ms ease-out, transform 140ms ease-out;
+}
+.dock-background.dock-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+.dock-icon {
+    padding: 5px;
+    border-radius: 15px;
+    background:transparent;
+    color: white;
+}
+.dock-icon:hover {
+    background-color: rgba(255,255,255,0.10);
+}

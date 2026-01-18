@@ -1,0 +1,87 @@
+
+.clock-label {
+    color: #eee;
+    margin-top: -1px;
+    font-size:13px;
+    font-family: "Adwaita Sans", Inter;
+}
+  
+.dock-background {
+   transition: opacity 140ms ease-out, transform 190ms ease-out;
+}
+
+.dock-background.dock-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.tile-close {
+  margin:0;
+
+transition: all 0.5s;
+  transition-delay: 250ms; 
+}
+
+.tile image {
+
+}
+
+.tile:hover .tile-close {
+  opacity: 1;
+}
+.tile-close:hover {      
+  transition-delay: 50ms;
+  background: rgba(200,60,60,0.9);
+}
+.tile:hover {
+    box-shadow: inset 0 0 0 5px rgba(41,128,185,1);
+}
+
+.tile {
+  box-shadow: inset 0 0 0 1px #58585b;
+  border-radius: 28px;
+  background: rgba(44,44,44,.98);
+
+}
+#fullblur {
+  border-top: 2.4em solid rgba(0,0,0,.6);
+  background: rgba(2,2,2,.6);
+  box-shadow: inset 0px 0px 30px 11px rgba(0,0,0,.6);;
+}
+
+.round-tile {
+  margin-top: -8px;
+  background-color: transparent;
+  border-radius: 10px;
+  padding: 0;
+}
+
+.round-tile image {
+-gtk-icon-transform: scale(.9);
+}
+
+
+.tile {
+  animation: zoomIn 0.2s ease-out forwards;
+}
+
+@keyframes zoomIn {
+  0% {
+    transform: scale(0.8); /* Start at half size */
+    opacity: 0;            /* Start invisible */
+  }
+  100% {
+    transform: scale(1);   /* End at full size */
+    opacity: 1;            /* End fully visible */
+  }
+}
+@keyframes fadeIn {
+  0% {
+
+    opacity: 0;            /* Start invisible */
+  }
+  100% {
+
+    opacity: 1;            /* End fully visible */
+  }
+}
