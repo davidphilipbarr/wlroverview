@@ -93,6 +93,7 @@ window { background: transparent; }
     opacity: 0;
     transition: opacity 120ms ease-out, background 120ms ease-out;
 }
+
 .tile:hover .tile-close {
     opacity: 1;
 }
@@ -139,6 +140,20 @@ window { background: transparent; }
 }
 .dock-icon:hover {
     background-color: rgba(255,255,255,0.10);
+}
+/* Custom Tooltip Popover */
+popover.dock-popover contents {
+    background-color: rgba(22, 22, 26, 0.95);
+    color: white;
+    border-radius: 12px;
+    padding: 6px 12px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    margin-bottom: 12px;
+}
+.dock-popover-label {
+    font-size: 13px;
+    font-weight: 600;
 }
 """
 
@@ -236,22 +251,33 @@ def load_dock_config():
 def expand_tokens(argv):
     return [os.path.expanduser(os.path.expandvars(t)) for t in argv]
 
+_ICON_CACHE = {}
+
 def pick_icon_name(icon_theme: Gtk.IconTheme, appid: str) -> str:
     """
     Resolve an icon name for a tile from an app_id.
     Tries:
-      1) exact appid
-      2) dashified appid (common theme naming)
-      3) fallback
+      1) Cache lookup
+      2) exact appid
+      3) dashified appid (common theme naming)
+      4) fallback
     """
-    if appid and icon_theme.has_icon(appid):
-        return appid
+    if not appid:
+        return "applications-system"
+    
+    if appid in _ICON_CACHE:
+        return _ICON_CACHE[appid]
 
-    dashified = (appid or "").replace(".", "-").replace("_", "-")
-    if dashified and icon_theme.has_icon(dashified):
-        return dashified
-
-    return "applications-system"
+    res = "applications-system"
+    if icon_theme.has_icon(appid):
+        res = appid
+    else:
+        dashified = appid.replace(".", "-").replace("_", "-")
+        if dashified and icon_theme.has_icon(dashified):
+            res = dashified
+    
+    _ICON_CACHE[appid] = res
+    return res
 
 # ---------------- MAIN WINDOW ---------------- #
 class MainWindow(Gtk.Window):
@@ -348,50 +374,52 @@ class MainWindow(Gtk.Window):
         # Volume
         self.vol_icon = Gtk.Image.new_from_icon_name("audio-volume-high-symbolic")
         self.vol_icon.set_pixel_size(18)
-        vol_btn = Gtk.Button(child=self.vol_icon)
-        vol_btn.add_css_class("round-tile")
-        vol_btn.set_focusable(False)
-        vol_btn.connect("clicked", lambda *_: subprocess.Popen(["pavucontrol"]))
-        sys_buttons.append(vol_btn)
+        self.vol_btn = Gtk.Button(child=self.vol_icon)
+        self.vol_btn.add_css_class("round-tile")
+        self.vol_btn.set_focusable(False)
+        self.vol_btn.connect("clicked", lambda *_: subprocess.Popen(["pavucontrol"]))
+        sys_buttons.append(self.vol_btn)
+        
+        # Battery (placeholder button)
+        self.bat_icon = Gtk.Image()
+        self.bat_icon.set_pixel_size(18)
+        self.bat_btn = Gtk.Button(child=self.bat_icon)
+        self.bat_btn.add_css_class("round-tile")
+        self.bat_btn.set_focusable(False)
+        self.bat_btn.set_visible(False)
+        sys_buttons.append(self.bat_btn)
+
+        # Defer status updates
+        def defer_status():
+            self.update_volume_icon()
+            self._update_battery_status()
+            GLib.timeout_add_seconds(60, self._update_battery_status)
+            return False
+
+        GLib.idle_add(defer_status)
         GLib.timeout_add(2000, self.update_volume_icon)
-        self.update_volume_icon()
-        # Battery
-        icon, tooltip = self.get_battery_info()
-        if icon:
-            bat_icon = Gtk.Image.new_from_icon_name(icon)
-            bat_icon.set_pixel_size(18)
-
-            bat_btn = Gtk.Button(child=bat_icon)
-            bat_btn.add_css_class("round-tile")
-            bat_btn.set_focusable(False)
-            bat_btn.set_tooltip_text(tooltip)
-
-            # Optional: open power settings on click
-           # bat_btn.connect(
-           #     "clicked",
-           #     lambda *_: subprocess.Popen(["gnome-control-center", "power"])
-          #  )
-
-            sys_buttons.append(bat_btn)
         # Bluetooth
         self.add_sys_button(
             sys_buttons,
             "bluetooth-active-symbolic",
-            lambda *_: (run_action("bluetooth"), self.close())
+            lambda *_: (run_action("bluetooth"), self.close()),
+            "Bluetooth"
         )
 
         # Labwc tweaks
         self.add_sys_button(
             sys_buttons,
             "applications-system-symbolic",
-            lambda *_: (run_action("conf"), self.close())
+            lambda *_: (run_action("conf"), self.close()),
+            "Settings"
         )
 
         # Lock
         self.add_sys_button(
             sys_buttons,
             "system-lock-screen-symbolic",
-            lambda *_: (run_action("lock_screen"), self.close())
+            lambda *_: (run_action("lock_screen"), self.close()),
+            "Lock Screen"
         )
 
         # -------- Center --------
@@ -444,7 +472,7 @@ class MainWindow(Gtk.Window):
         h = self.get_height()
         if w < 200 or h < 200:
             return True
-        self.center_overlay.set_size_request(int(w * 0.75), int(h * 0.6))
+        self.center_overlay.set_size_request(int(w * 0.65), int(h * 0.6))
         return False
 
     # ---------------- Helpers ---------------- #
@@ -454,43 +482,74 @@ class MainWindow(Gtk.Window):
     
     
     
-    def add_sys_button(self, parent, icon_name, callback):
+    def add_sys_button(self, parent, icon_name, callback, tooltip=None):
         icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(18)
         btn = Gtk.Button(child=icon)
         btn.add_css_class("round-tile")
         btn.set_focusable(False)
+        if tooltip:
+            btn.set_tooltip_text(tooltip)
         btn.connect("clicked", callback)
         parent.append(btn)
 
-    def get_volume_icon(self):
+    def get_volume_info(self):
         try:
             out = subprocess.check_output(
                 ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
                 text=True
             ).strip()
         except Exception:
-            return "audio-volume-muted-symbolic"
+            return "audio-volume-muted-symbolic", "Volume: Muted"
 
-        if "MUTED" in out:
-            return "audio-volume-muted-symbolic"
-
+        is_muted = "MUTED" in out
+        
         try:
-            vol = float(out.split()[-1])
+            # Output can be "Volume: 0.15" or "Volume: 0.15 [MUTED]"
+            # We want the number part.
+            parts = out.split()
+            vol_val = 0.0
+            for p in parts:
+                try:
+                    vol_val = float(p)
+                    break
+                except ValueError:
+                    continue
+            
+            vol_pct = int(round(vol_val * 100))
         except Exception:
-            return "audio-volume-muted-symbolic"
+            vol_pct = 0
 
-        if vol == 0:
-            return "audio-volume-muted-symbolic"
-        elif vol < 0.33:
-            return "audio-volume-low-symbolic"
-        elif vol < 0.66:
-            return "audio-volume-medium-symbolic"
+        tooltip = f"{vol_pct}%"
+        if is_muted:
+            tooltip += " (muted)"
+            return "audio-volume-muted-symbolic", tooltip
+
+        if vol_pct == 0:
+            icon = "audio-volume-muted-symbolic"
+        elif vol_pct < 33:
+            icon = "audio-volume-low-symbolic"
+        elif vol_pct < 66:
+            icon = "audio-volume-medium-symbolic"
         else:
-            return "audio-volume-high-symbolic"
+            icon = "audio-volume-high-symbolic"
+            
+        return icon, tooltip
 
     def update_volume_icon(self):
-        self.vol_icon.set_from_icon_name(self.get_volume_icon())
+        icon, tooltip = self.get_volume_info()
+        self.vol_icon.set_from_icon_name(icon)
+        self.vol_btn.set_tooltip_text(tooltip)
+        return True
+
+    def _update_battery_status(self):
+        icon, tooltip = self.get_battery_info()
+        if icon:
+            self.bat_icon.set_from_icon_name(icon)
+            self.bat_btn.set_tooltip_text(tooltip)
+            self.bat_btn.set_visible(True)
+        else:
+            self.bat_btn.set_visible(False)
         return True
 
     def get_battery_info(self):
@@ -608,7 +667,7 @@ class MainWindow(Gtk.Window):
 
         wins = self.windows
         if not wins:
-            return True
+            return False
 
         w = self.get_width()
         h = self.get_height()
@@ -624,8 +683,8 @@ class MainWindow(Gtk.Window):
 
         for cols in range(1, count + 1):
             rows = math.ceil(count / cols)
-            max_w = (w * 0.9 - (cols - 1) * spacing) / cols
-            max_h = (h * 0.8 - (rows - 1) * spacing) / rows
+            max_w = (w * 0.80 - (cols - 1) * spacing) / cols
+            max_h = (h * 0.80 - (rows - 1) * spacing) / rows
             tw = min(max_w, max_h * (4 / 3))
             if tw > best_w:
                 best_w, best_cols = tw, cols
@@ -735,7 +794,24 @@ class MainWindow(Gtk.Window):
             btn = Gtk.Button(child=icon)
             btn.add_css_class("dock-icon")
             btn.set_focusable(False)
-            btn.set_tooltip_text(e.get("title") or e.get("app_id") or e.get("icon"))
+
+            # Custom Tooltip via Popover
+            tt_text = e.get("title") or e.get("app_id") or e.get("icon")
+            tt_label = Gtk.Label(label=tt_text)
+            tt_label.add_css_class("dock-popover-label")
+
+            popover = Gtk.Popover()
+            popover.set_child(tt_label)
+            popover.set_parent(btn)
+            popover.set_has_arrow(False)
+            popover.set_position(Gtk.PositionType.TOP)
+            popover.add_css_class("dock-popover")
+            popover.set_autohide(False)
+
+            hover_ctrl = Gtk.EventControllerMotion()
+            hover_ctrl.connect("enter", lambda *_, p=popover: p.popup())
+            hover_ctrl.connect("leave", lambda *_, p=popover: p.popdown())
+            btn.add_controller(hover_ctrl)
 
             btn.set_size_request(74, 74)
 
