@@ -15,14 +15,6 @@ from gi.repository import Gtk, Gdk, GLib, Pango, Gio
 # ---------------- KEYBINDINGS / ACTIONS ---------------- #
 
 ACTIONS = {
-    "workspace_prev": {
-        "type": "ydotool",
-        "command": "key 56:1 105:1 105:0 56:0",  # Alt+Left
-    },
-    "workspace_next": {
-        "type": "ydotool",
-        "command": "key 56:1 106:1 106:0 56:0",  # Alt+Right
-    },
     "lock_screen": {
         "type": "exec",
         "command": "swaylock -f -c 000000",
@@ -51,6 +43,8 @@ def run_action(name):
 
         if atype == "ydotool":
             subprocess.Popen(["ydotool"] + shlex.split(cmd))
+        elif atype == "wlrctl":
+            subprocess.Popen(["wlrctl"] + shlex.split(cmd))
         elif atype == "exec":
             subprocess.Popen(shlex.split(cmd))
 
@@ -155,6 +149,28 @@ popover.dock-popover contents {
     font-size: 13px;
     font-weight: 600;
 }
+
+/* Workspace List */
+.workspace-tile {
+    background-color: #222226;
+    color: #cccccc;
+    border-radius: 15px;
+    padding: 0px 0px;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background 160ms ease-out;
+    color: rgba(255,255,255,.5);
+
+}
+.workspace-tile:hover {
+    background-color: #444447;
+    color: white;
+}
+.workspace-tile.current {
+background-color:#343437;
+    color: white;
+    box-shadow: inset 0 0 0 2px rgba(41,128,185,1);
+}
 """
 
 # ---------------- TITLE NORMALIZATION ---------------- #
@@ -238,6 +254,23 @@ def get_windows():
 
     return out
 
+def get_workspaces():
+    try:
+        raw = subprocess.check_output(["wlrctl", "workspace", "list"], text=True)
+        return [line.strip() for line in raw.splitlines() if line.strip()][::-1]
+    except Exception:
+        return []
+
+def get_current_workspace():
+    try:
+        return subprocess.check_output(["wlrctl", "workspace", "current"], text=True).strip()
+    except Exception:
+        return ""
+
+def goto_workspace(name):
+    subprocess.Popen(["wlrctl", "workspace", "goto", name])
+
+
 def load_dock_config():
     path = os.path.expanduser("~/.config/wloverview/config.json")
     if not os.path.exists(path):
@@ -309,59 +342,20 @@ class MainWindow(Gtk.Window):
         blur.set_vexpand(True)
         overlay.set_child(blur)
 
-        # -------- Clock --------
+        # -------- Clock (Top Left) --------
         self.clock = Gtk.Label()
         self.clock.add_css_class("clock-label")
-        self.clock.set_halign(Gtk.Align.CENTER)
+        self.clock.set_halign(Gtk.Align.START)
         self.clock.set_valign(Gtk.Align.START)
-        self.clock.set_margin_top(8)
+        self.clock.set_margin_top(12)
+        self.clock.set_margin_start(12)
         overlay.add_overlay(self.clock)
         self.update_clock()
         GLib.timeout_add_seconds(60, self.update_clock)
 
 
-      
-
         # Cache windows once
         self.windows = get_windows()
-
-        # -------- Top-left workspace buttons --------
-        ws_buttons = Gtk.Box(spacing=8)
-        ws_buttons.set_halign(Gtk.Align.START)
-        ws_buttons.set_valign(Gtk.Align.START)
-        ws_buttons.set_margin_top(12)
-        ws_buttons.set_margin_start(12)
-        overlay.add_overlay(ws_buttons)
-
-        # Previous workspace
-        prev_icon = Gtk.Image.new_from_icon_name("go-previous-symbolic")
-        prev_icon.set_pixel_size(18)
-        prev_btn = Gtk.Button(child=prev_icon)
-        prev_btn.add_css_class("round-tile")
-        prev_btn.set_focusable(False)
-        prev_btn.connect(
-            "clicked",
-            lambda *_: (
-                run_action("workspace_prev"),
-                self.close()
-            )
-        )
-        ws_buttons.append(prev_btn)
-
-        # Next workspace
-        next_icon = Gtk.Image.new_from_icon_name("go-next-symbolic")
-        next_icon.set_pixel_size(18)
-        next_btn = Gtk.Button(child=next_icon)
-        next_btn.add_css_class("round-tile")
-        next_btn.set_focusable(False)
-        next_btn.connect(
-            "clicked",
-            lambda *_: (
-                run_action("workspace_next"),
-                self.close()
-            )
-        )
-        ws_buttons.append(next_btn)
 
         # -------- Top-right buttons --------
         sys_buttons = Gtk.Box(spacing=10)
@@ -423,24 +417,33 @@ class MainWindow(Gtk.Window):
         )
 
         # -------- Center --------
-        center = Gtk.CenterBox()
-        center.set_halign(Gtk.Align.CENTER)
-        center.set_valign(Gtk.Align.CENTER)
-        overlay.add_overlay(center)
+        self.center_box = Gtk.CenterBox()
+        self.center_box.set_halign(Gtk.Align.CENTER)
+        self.center_box.set_valign(Gtk.Align.START)
+        overlay.add_overlay(self.center_box)
+
+        # Workspace list (Stacked on top of tiles)
+        self.workspace_box = Gtk.Box(spacing=10)
+        self.workspace_box.set_halign(Gtk.Align.CENTER)
+        self.workspace_box.set_valign(Gtk.Align.CENTER)
+        self.workspace_box.set_size_request(-1, 100) # Reserve height to prevent jump
 
         self.center_overlay = Gtk.Overlay()
-        wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-        wrapper.set_halign(Gtk.Align.CENTER)
-        wrapper.set_valign(Gtk.Align.CENTER)
+        self.wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=60)
+        self.wrapper.set_halign(Gtk.Align.CENTER)
+        self.wrapper.set_valign(Gtk.Align.CENTER)
+        # Margins are now handled responsively in _update_center_size
 
         self.grid = Gtk.Grid(column_spacing=22, row_spacing=16)
-        wrapper.append(self.grid)
+        
+        self.wrapper.append(self.workspace_box)
+        self.wrapper.append(self.grid)
 
-        self.center_overlay.set_child(wrapper)
-        center.set_center_widget(self.center_overlay)
+        self.center_overlay.set_child(self.wrapper)
+        self.center_box.set_center_widget(self.center_overlay)
 
-        GLib.idle_add(self._update_center_size)
-        GLib.idle_add(self.populate)
+        GLib.idle_add(self._update_layout)
+
         self.build_dock(overlay)
 
         # -------- Background click-to-close --------
@@ -458,21 +461,32 @@ class MainWindow(Gtk.Window):
 
         bg_click.connect("pressed", on_bg_click)
         self.add_controller(bg_click)
-        self.connect("map", lambda *_: self.populate())
-    def _on_size_notify(self, widget, pspec):
-        self._width = widget.get_width()
-        self._height = widget.get_height()
+
+    # ---------------- Layout ---------------- #
+    def _update_layout(self):
+        w = self.get_width()
+        h = self.get_height()
+        if w < 200 or h < 200: # Wait for a reasonable size
+            return True
+            
+        # Update size calc first so populate can use the results
+        self._update_center_size()
         self.populate()
-        self._update_center_size()    
-        
-        
+        return False
+
     # ---------------- Layout ---------------- #
     def _update_center_size(self):
         w = self.get_width()
         h = self.get_height()
         if w < 200 or h < 200:
             return True
-        self.center_overlay.set_size_request(int(w * 0.65), int(h * 0.6))
+        
+        # Take 80% of width and 75% of height for the content area
+        target_h = int(h * 0.75)
+        self.center_overlay.set_size_request(int(w * 0.8), target_h)
+        
+        # Set top margin to 8%
+        self.center_box.set_margin_top(int(h * 0.095))
         return False
 
     # ---------------- Helpers ---------------- #
@@ -659,11 +673,59 @@ class MainWindow(Gtk.Window):
         """
         grab window from wlrctl
         """
+        # Clear grid
         child = self.grid.get_first_child()
         while child:
             nxt = child.get_next_sibling()
             self.grid.remove(child)
             child = nxt
+
+        # Clear workspace box
+        child = self.workspace_box.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.workspace_box.remove(child)
+            child = nxt
+
+        # ---- Populate Workspaces ----
+        workspaces = get_workspaces()
+        current_ws = get_current_workspace()
+
+        ws_h = 100
+        # Use a stable 16:9 ratio to prevent "flipping" while the window resizes on load
+        ws_w = int(ws_h * (21/9))
+
+        for ws in workspaces:
+            btn = Gtk.Button()
+            btn.add_css_class("workspace-tile")
+            if ws == current_ws:
+                btn.add_css_class("current")
+            
+            btn.set_size_request(ws_w, ws_h)
+
+            # Custom Tooltip via Popover (matching dock style)
+            tt_label = Gtk.Label(label=ws)
+            tt_label.add_css_class("dock-popover-label")
+
+            popover = Gtk.Popover()
+            popover.set_child(tt_label)
+            popover.set_parent(btn)
+            popover.set_has_arrow(False)
+            popover.set_position(Gtk.PositionType.TOP)
+            popover.add_css_class("dock-popover")
+            popover.set_autohide(False)
+
+            hover_ctrl = Gtk.EventControllerMotion()
+            hover_ctrl.connect("enter", lambda *_, p=popover: p.popup())
+            hover_ctrl.connect("leave", lambda *_, p=popover: p.popdown())
+            btn.add_controller(hover_ctrl)
+
+            btn.connect(
+                "clicked", 
+                lambda _b, w=ws: (goto_workspace(w), self.close())
+            )
+            self.workspace_box.append(btn)
+
 
         wins = self.windows
         if not wins:
@@ -678,13 +740,20 @@ class MainWindow(Gtk.Window):
         icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())  # pylint: disable=no-value-for-parameter
 
         count = len(wins)
+        # Account for workspace box + wrapper spacing + margins
+        # ws_h = 100, wrapper spacing = 60. 
+        # We want to use the height of the center_overlay for calculations
+        overlay_h = int(h * 0.75)
+        available_h = overlay_h - 100 - 60
+        if available_h < 200: available_h = 200 # fallback
+
         spacing = 22
         best_cols, best_w = 1, 0
 
         for cols in range(1, count + 1):
             rows = math.ceil(count / cols)
-            max_w = (w * 0.80 - (cols - 1) * spacing) / cols
-            max_h = (h * 0.80 - (rows - 1) * spacing) / rows
+            max_w = (w * 0.85 - (cols - 1) * spacing) / cols
+            max_h = (available_h - (rows - 1) * spacing) / rows
             tw = min(max_w, max_h * (4 / 3))
             if tw > best_w:
                 best_w, best_cols = tw, cols
@@ -707,9 +776,9 @@ class MainWindow(Gtk.Window):
 
                 icon_name = pick_icon_name(icon_theme, appid)
                 icon = Gtk.Image.new_from_icon_name(icon_name)
-                if tile_w >= 260:
-                    icon_size = 96
-                elif tile_w >= 200:
+                if tile_w >= 460:
+                    icon_size = 112
+                elif tile_w >= 260:
                     icon_size = 80
                 elif tile_w >= 160:
                     icon_size = 64
