@@ -949,7 +949,14 @@ class MainWindow(Gtk.Window):
             self.workspace_box.append(btn)
 
 
-        wins = self.windows
+        # Count instances of each appid to prioritize single-instance windows
+        counts = {}
+        for w in self.windows:
+            aid = w[0]
+            counts[aid] = counts.get(aid, 0) + 1
+
+        # Sort: 1) Single instances first, 2) Multi-instances, grouped by appid
+        wins = sorted(self.windows, key=lambda x: (counts.get(x[0], 0) > 1, x[0].lower() if x[0] else ""))
         if not wins:
             return False
 
